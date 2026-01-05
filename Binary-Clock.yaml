@@ -1,0 +1,269 @@
+esphome:
+  name: binary-clock
+  friendly_name: Binary Clock
+  on_boot:
+    priority: -10
+    then:
+      - light.turn_on:
+          id: clock_leds
+          brightness: 100%
+          effect: "Rainbow Binary Clock"
+
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+ota:
+  platform: esphome
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+
+# Enable Web Server
+web_server:
+  port: 80
+
+wifi:
+  # Configure WiFi in setup mode if not provided
+  ap:
+    ssid: "Axiometa Binary Clock Setup"
+
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "EST5EDT,M3.2.0,M11.1.0" # Detroit, Eastern Time
+    on_time_sync:
+      then:
+        - logger.log: "NTP Time Synchronized"
+
+# Global variables for colors and settings
+globals:
+  - id: hr_r
+    type: int
+    initial_value: '210'
+    restore_value: yes
+  - id: hr_g
+    type: int
+    initial_value: '0'
+    restore_value: yes
+  - id: hr_b
+    type: int
+    initial_value: '255'
+    restore_value: yes
+    
+  - id: min_r
+    type: int
+    initial_value: '210'
+    restore_value: yes
+  - id: min_g
+    type: int
+    initial_value: '0'
+    restore_value: yes
+  - id: min_b
+    type: int
+    initial_value: '255'
+    restore_value: yes
+
+  - id: sec_r
+    type: int
+    initial_value: '210'
+    restore_value: yes
+  - id: sec_g
+    type: int
+    initial_value: '0'
+    restore_value: yes
+  - id: sec_b
+    type: int
+    initial_value: '255'
+    restore_value: yes
+
+  - id: use_24h
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+number:
+  - platform: template
+    name: "Brightness"
+    id: clock_brightness
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 50
+    restore_value: yes
+    unit_of_measurement: "%"
+    set_action:
+      then:
+        - light.control:
+            id: clock_leds
+            brightness: !lambda "return x / 100.0;"
+
+select:
+  - platform: template
+    name: "Time Format"
+    id: format_select
+    options:
+      - "24 Hour"
+      - "12 Hour"
+    initial_option: "24 Hour"
+    set_action:
+      then:
+        - lambda: |-
+            id(use_24h) = (x == "24 Hour");
+
+light:
+  - platform: fastled_clockless
+    chipset: WS2812B
+    pin: GPIO1
+    num_leds: 18
+    rgb_order: GRB
+    name: "Binary Clock Display"
+    id: clock_leds
+    effects:
+      - addressable_lambda:
+          name: "Rainbow Binary Clock"
+          update_interval: 32ms
+          lambda: |-
+            auto now = id(sntp_time).now();
+            if (!now.is_valid()) return;
+
+            int hour = now.hour;
+            int minute = now.minute;
+            int second = now.second;
+
+            if (!id(use_24h)) {
+              if (hour > 12) hour -= 12;
+              else if (hour == 0) hour = 12;
+            }
+
+            // Time masking logic
+            bool mask[18] = {false};
+            static const uint8_t HOUR_LEDS[] = {5, 4, 3, 2, 1, 0};
+            static const uint8_t MIN_LEDS[] = {11, 10, 9, 8, 7, 6};
+            static const uint8_t SEC_LEDS[] = {17, 16, 15, 14, 13, 12};
+
+            for (int i = 0; i < 6; i++) {
+              if (hour & (1 << i)) mask[HOUR_LEDS[i]] = true;
+              if (minute & (1 << i)) mask[MIN_LEDS[i]] = true;
+              if (second & (1 << i)) mask[SEC_LEDS[i]] = true;
+            }
+
+            // Inverse rainbow (rainbow ONLY on active bits)
+            uint8_t initial_h = (millis() % 8000) * 255 / 8000;
+            for (int i = 0; i < it.size(); i++) {
+              if (mask[i]) {
+                uint8_t h = initial_h + (i * 5);
+                it[i] = ESPHSVColor(h, 255, 255).to_rgb();
+              } else {
+                it[i] = Color(0,0,0);
+              }
+            }
+      - addressable_lambda:
+          name: "Inverse Rainbow Binary Clock"
+          update_interval: 32ms
+          lambda: |-
+            auto now = id(sntp_time).now();
+            if (!now.is_valid()) return;
+
+            int hour = now.hour;
+            int minute = now.minute;
+            int second = now.second;
+
+            if (!id(use_24h)) {
+              if (hour > 12) hour -= 12;
+              else if (hour == 0) hour = 12;
+            }
+
+            // Time masking logic
+            bool mask[18] = {false};
+            static const uint8_t HOUR_LEDS[] = {5, 4, 3, 2, 1, 0};
+            static const uint8_t MIN_LEDS[] = {11, 10, 9, 8, 7, 6};
+            static const uint8_t SEC_LEDS[] = {17, 16, 15, 14, 13, 12};
+
+            for (int i = 0; i < 6; i++) {
+              if (hour & (1 << i)) mask[HOUR_LEDS[i]] = true;
+              if (minute & (1 << i)) mask[MIN_LEDS[i]] = true;
+              if (second & (1 << i)) mask[SEC_LEDS[i]] = true;
+            }
+
+            // Rainbow background with stencil
+            uint8_t initial_h = (millis() % 8000) * 255 / 8000;
+            for (int i = 0; i < it.size(); i++) {
+              if (mask[i]) {
+                it[i] = Color(0,0,0);
+              } else {
+                uint8_t h = initial_h + (i * 5);
+                it[i] = ESPHSVColor(h, 255, 255).to_rgb();
+              }
+            }
+      - addressable_lambda:
+          name: "Binary Clock"
+          update_interval: 1s
+          lambda: |-
+            auto now = id(sntp_time).now();
+            if (!now.is_valid()) return;
+
+            int hour = now.hour;
+            int minute = now.minute;
+            int second = now.second;
+
+            if (!id(use_24h)) {
+              if (hour > 12) hour -= 12;
+              else if (hour == 0) hour = 12;
+            }
+
+            // Hour LEDs: 5, 4, 3, 2, 1, 0
+            static const uint8_t HOUR_LEDS[] = {5, 4, 3, 2, 1, 0};
+            Color hr_color = Color(id(hr_r), id(hr_g), id(hr_b));
+            for (int i = 0; i < 6; i++) {
+              it[HOUR_LEDS[i]] = (hour & (1 << i)) ? hr_color : Color(0,0,0);
+            }
+
+            // Minute LEDs: 11, 10, 9, 8, 7, 6
+            static const uint8_t MIN_LEDS[] = {11, 10, 9, 8, 7, 6};
+            Color min_color = Color(id(min_r), id(min_g), id(min_b));
+            for (int i = 0; i < 6; i++) {
+              it[MIN_LEDS[i]] = (minute & (1 << i)) ? min_color : Color(0,0,0);
+            }
+
+            // Second LEDs: 17, 16, 15, 14, 13, 12
+            static const uint8_t SEC_LEDS[] = {17, 16, 15, 14, 13, 12};
+            Color sec_color = Color(id(sec_r), id(sec_g), id(sec_b));
+            for (int i = 0; i < 6; i++) {
+              it[SEC_LEDS[i]] = (second & (1 << i)) ? sec_color : Color(0,0,0);
+            }
+      # Some Default Effects for Fun
+      - addressable_rainbow:
+          name: "Rainbow"
+      - addressable_twinkle:
+
+  - platform: fastled_clockless
+    chipset: WS2812B
+    pin: GPIO21
+    num_leds: 1
+    rgb_order: GRB
+    name: "WiFi Status LED"
+    id: wifi_led
+
+# WiFi LED handling
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (network::is_connected()) {
+            auto call = id(wifi_led).turn_on();
+            call.set_rgb(0, 1, 0); // Green (low brightness)
+            call.perform();
+          } else {
+            auto call = id(wifi_led).turn_on();
+            call.set_rgb(1, 0, 0); // Red
+            call.perform();
+          }
+
